@@ -1,0 +1,12 @@
+# VB6 only reads source files with CRLF line endings
+*.bas text eol=crlf
+*.frm text eol=crlf
+*.cls text eol=crlf
+*.vbp text eol=crlf
+*.rc  text eol=crlf
+
+# Game data and compiled resources
+*.wad binary
+*.res binary
+*.bin binary
+*.exe binary
