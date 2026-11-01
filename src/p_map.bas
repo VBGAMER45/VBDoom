@@ -154,6 +154,7 @@ Public Function P_TeleportMove(ByVal thing As Long, ByVal x As Long, ByVal y As 
     mobjs(thing).y = y
 
     P_SetThingPosition thing
+    R_InterpForget thing                         ' (DoomVB) no smooth frames across the jump
 
     P_TeleportMove = True
 End Function

@@ -6,7 +6,12 @@ Attribute VB_Name = "i_system"
 ' Copyright (C) 1993-1996 id Software, Inc.  Licensed under the GNU GPL v2.
 Option Explicit
 
-Private basetime As Long
+Private Declare Function QueryPerformanceCounter Lib "kernel32" (lpPerformanceCount As Currency) As Long
+Private Declare Function QueryPerformanceFrequency Lib "kernel32" (lpFrequency As Currency) As Long
+
+Private basetime As Long                         ' timeGetTime at startup (no performance counter)
+Private basecount As Currency                    ' QueryPerformanceCounter at startup
+Private countfreq As Double                      ' its counts per second (0 = not available)
 Private timeinit As Boolean
 Private inerror As Boolean
 Private logopen As Boolean
@@ -24,21 +29,44 @@ Public Sub Main()
     D_DoomMain
 End Sub
 
-' returns time in 1/35th second tics
-Public Function I_GetTime() As Long
-    Dim t As Long
-    t = timeGetTime()
+' (DoomVB) milliseconds since startup with a fraction, from the performance
+' counter (the clock behind I_GetTime, I_GetTimeMS and smooth frames).
+' The Currency arguments hold the 64 bit counts / 10000; the scale cancels.
+Public Function I_GetTimeExact() As Double
+    Dim c As Currency, f As Currency
     If Not timeinit Then
-        basetime = t
+        If QueryPerformanceFrequency(f) <> 0 Then countfreq = CDbl(f)
+        If countfreq > 0 Then QueryPerformanceCounter basecount
+        basetime = timeGetTime()
         timeinit = True
     End If
-    I_GetTime = Int(CDbl(t - basetime) * TICRATE / 1000#)
+    If countfreq > 0 Then
+        QueryPerformanceCounter c
+        I_GetTimeExact = CDbl(c - basecount) * 1000# / countfreq
+    Else
+        I_GetTimeExact = CDbl(timeGetTime() - basetime)
+    End If
+End Function
+
+' (DoomVB) a performance counter value (as I_GetTimeExact reads it) in
+' I_GetTimeExact's milliseconds; -1 without a performance counter.
+Public Function I_CountToMS(ByVal c As Currency) As Double
+    If Not timeinit Then I_GetTimeExact
+    If countfreq > 0 Then
+        I_CountToMS = CDbl(c - basecount) * 1000# / countfreq
+    Else
+        I_CountToMS = -1
+    End If
+End Function
+
+' returns time in 1/35th second tics
+Public Function I_GetTime() As Long
+    I_GetTime = Int(I_GetTimeExact() * TICRATE / 1000#)
 End Function
 
 ' milliseconds since startup (for the sound/music code)
 Public Function I_GetTimeMS() As Long
-    If Not timeinit Then I_GetTime
-    I_GetTimeMS = timeGetTime() - basetime
+    I_GetTimeMS = Int(I_GetTimeExact())
 End Function
 
 Public Sub I_Init()

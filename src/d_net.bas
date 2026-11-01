@@ -352,6 +352,7 @@ Public Sub NetUpdate()
 
         G_BuildTiccmd localcmds(maketic Mod BACKUPTICS)
         NormalizeTiccmd localcmds(maketic Mod BACKUPTICS)
+        If framelog <> 0 Then Print #framelog, "T " & maketic & " " & nowtime & " " & Format$(I_GetTimeExact(), "0.000")
         maketic = maketic + 1
     Next
 
@@ -557,11 +558,10 @@ Public Sub TryRunTics()
     Dim i As Long, j As Long, lowtic As Long, entertic As Long, realtics As Long
     Dim availabletics As Long, counts As Long, numplaying As Long, buf As Long
     Static oldentertics As Long
+    Static waiting As Boolean, waitstart As Long
 
     ' get real tics
     entertic = I_GetTime() \ ticdup
-    realtics = entertic - oldentertics
-    oldentertics = entertic
 
     ' get available tics
     NetUpdate
@@ -575,6 +575,27 @@ Public Sub TryRunTics()
         End If
     Next
     availabletics = lowtic - gametic \ ticdup
+
+    ' (DoomVB) smooth frames: with no tic to run yet, draw another frame
+    ' instead of waiting here
+    If smoothactive Then
+        If availabletics < 1 Then
+            If Not waiting Then
+                waiting = True
+                waitstart = entertic
+            End If
+            ' don't stay without tics forever -- give the menu a chance to work
+            If entertic - waitstart >= 20 Then
+                M_Ticker
+                waitstart = entertic
+            End If
+            Exit Sub
+        End If
+        waiting = False
+    End If
+
+    realtics = entertic - oldentertics
+    oldentertics = entertic
 
     ' decide how many tics to run
     If realtics < availabletics - 1 Then

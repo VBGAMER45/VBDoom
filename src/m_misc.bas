@@ -95,6 +95,7 @@ Private Sub SetDefault(ByVal name As String, ByVal v As String)
         Case "detaillevel": detailLevel = Val(v)
         Case "snd_channels": numChannels = Val(v)
         Case "usegamma": usegamma = Val(v)
+        Case "smooth_frames": smoothframes = Val(v)
         Case "chatmacro0" To "chatmacro9"
             If Len(name) = 10 Then chat_macros(Val(Right$(name, 1))) = v
     End Select
@@ -124,6 +125,7 @@ Private Function DefaultsText() As String
     s = s & "detaillevel" & vbTab & vbTab & detailLevel & vbCrLf
     s = s & "snd_channels" & vbTab & vbTab & numChannels & vbCrLf
     s = s & "usegamma" & vbTab & vbTab & usegamma & vbCrLf
+    s = s & "smooth_frames" & vbTab & vbTab & smoothframes & vbCrLf
     For i = 0 To 9
         s = s & "chatmacro" & i & vbTab & vbTab & """" & chat_macros(i) & """" & vbCrLf
     Next
@@ -165,6 +167,7 @@ Public Sub M_LoadDefaults()
     detailLevel = 0
     numChannels = 8
     usegamma = 0
+    smoothframes = 1
     chat_macros(0) = HUSTR_CHATMACRO0
     chat_macros(1) = HUSTR_CHATMACRO1
     chat_macros(2) = HUSTR_CHATMACRO2

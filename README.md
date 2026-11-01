@@ -11,15 +11,10 @@ Windows executable and plays the original game data: DOOM, DOOM II, Final
 DOOM or the free [Freedoom](https://freedoom.github.io/) IWADs. Freedoom:
 Phase 1 is included, so it runs out of the box.
 
-<!--
-  Screenshots: put PNG files in docs/screenshots/ with these names, or change
-  the links. Tip: start DoomVB with -devparm and press F1 to save the screen
-  as DOOMnn.BMP (320x200) in the game folder.
--->
 | | |
 |---|---|
 | ![In game](docs/screenshots/ingame.png) | ![Automap](docs/screenshots/automap.png) |
-| ![Menu](docs/screenshots/menu.png) | ![Deathmatch](docs/screenshots/deathmatch.png) |
+| ![Main menu](docs/screenshots/menu.png) | ![Two-player co-op](docs/screenshots/coop.png) |
 
 ## Features
 
@@ -29,6 +24,11 @@ Phase 1 is included, so it runs out of the box.
   state log (`-synclog`).
 - **Software renderer:** 320x200, 8-bit, the original column and span
   drawers, scaled up in a window. No DirectX is needed.
+- **Smooth frames:** the game runs at DOOM's 35 tics a second. The screen is
+  drawn once per monitor refresh, and frames between tics show movement part
+  of the way, so turning and moving don't judder on a 60 Hz or faster
+  screen. `smooth_frames 0` in `default.cfg` (or `-nosmooth`) gives the
+  original 35 frames a second.
 - **Sound:** linuxdoom's 8-channel mixer at 44.1 kHz through `waveOut`. It
   plays DOOM's 11 kHz effects and Freedoom's 22/44 kHz effects at their own
   rates.
@@ -287,6 +287,9 @@ The bindings are `key_right`, `key_left`, `key_up`, `key_down`,
 and `key_speed`. Mouse buttons are `mouseb_fire`, `mouseb_strafe` and
 `mouseb_forward`, where 0 = left, 1 = right and 2 = middle.
 
+`smooth_frames` (DoomVB only) is 1 to draw a frame per monitor refresh,
+between the tics, and 0 for DOOM's 35 frames a second.
+
 ## Command line
 
 ### Game options (as in DOOM)
@@ -321,6 +324,7 @@ and `key_speed`. Mouse buttons are `mouseb_fire`, `mouseb_strafe` and
 | `-scale <n>` | Window size: 320 x n wide (default 2) |
 | `-width <pixels>` | Window width (the height follows at 4:3) |
 | `-nomouse` | Don't use the mouse |
+| `-nosmooth` / `-smooth` | Draw 35 frames a second as DOOM did / draw smooth frames (overrides `smooth_frames`) |
 
 ### Testing and debugging options
 
@@ -328,7 +332,8 @@ These exist for automated testing of the port and are documented in
 [docs/CONVENTIONS.md](docs/CONVENTIONS.md):
 `-hidden`, `-shot <tic> <file.bmp>`, `-quitat <tic>`, `-exitat <tic>`,
 `-key <tic>[+n] <key>`, `-synclog <file>`, `-checklinks`, `-watch <slot>`,
-`-sndcapture <file.wav>`, `-muslog <file>` and `-netdrop <n>`.
+`-sndcapture <file.wav>`, `-muslog <file>`, `-netdrop <n>` and
+`-framelog <file>`.
 
 ## Known limitations
 
@@ -349,6 +354,7 @@ python tools\build.py              build DoomVB.exe
 python tools\build.py --release    the same, without array bounds checks
 python tools\debugbuild.py         DoomVB_debug.exe: run time errors log a call trace
 python tools\check_names.py        find VB name clashes (VB is case-insensitive)
+python tools\check_precedence.py   find "a \ b * c" (VB divides by b * c, C does not)
 python tools\gen_tables.py         regenerate the data tables from the C source
 ```
 
@@ -385,6 +391,8 @@ fixes for crashes or plain bugs:
 - Guards against crashes that the C would hit.
 - Sound effects use the DOS volume scale. Sounds stop and follow moving
   sources as in DOS, where linuxdoom left those functions empty.
+- Smooth frames between the tics (only the drawing changes; the game, demos
+  and net games are the same).
 - `idclev` works in DOOM II.
 - Several players can run on one PC, and a few other small changes.
 

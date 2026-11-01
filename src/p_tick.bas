@@ -105,6 +105,7 @@ Public Function P_NewThinker() As Long
     thinkers(t).prv = 0
     thinkers(t).nxt = 0
     thinkers(t).func = TF_NONE
+    R_InterpForget t
     mobjs(t) = zeroMobj
     ceilings(t) = zeroCeiling
     doors(t) = zeroDoor
@@ -286,6 +287,9 @@ Public Sub P_Ticker()
 
     ' keep a reserve of free slots so nothing grows the arrays mid-tic
     If numfree < FREERESERVE Then P_GrowThinkers maxthinkers * 2
+
+    ' (DoomVB) smooth frames start from where everything is now
+    R_InterpSave
 
     ' run the tic
     If paused Then Exit Sub

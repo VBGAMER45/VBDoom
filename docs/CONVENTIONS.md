@@ -2,7 +2,8 @@
 
 How the C code of linuxdoom-1.10 (in `ref/linuxdoom-1.10`) is translated to VB6.
 Build with `python tools\build.py` (add `--release` to drop array bounds checks).
-`python tools\check_names.py` finds case-insensitive name clashes in one pass.
+`python tools\check_names.py` finds case-insensitive name clashes in one pass;
+`python tools\check_precedence.py` finds `\` / `Mod` precedence traps (below).
 
 ## Structure
 
@@ -42,6 +43,11 @@ routine, and never use `With mobjs(x)` (a With block locks the array).
 * **Operator precedence:** comparisons bind tighter than `And`/`Or`:
   `If flags And MF_SOLID <> 0` is wrong - write `If (flags And MF_SOLID) <> 0`.
   `\` binds tighter than `And`: write `(x And &HFFFF0000) \ &H10000`.
+  `*` and `/` bind tighter than `\` and `Mod`: C `x/2*FRACUNIT` is
+  `(x \ 2) * FRACUNIT` - `x \ 2 * FRACUNIT` is `x \ 131072`. That made
+  yslope (and zlight's distance fade) 0, so every floor and ceiling was drawn
+  with the one texel under the player and blinked as the player moved;
+  `tools\check_precedence.py` finds these.
 * **No short-circuit:** `If a >= 0 And arr(a) = 1` evaluates `arr(-1)`. Nest Ifs.
 * **`/` is floating point.** C integer `/` is `\` (truncates toward zero, like C).
 * **Shifts:** `x >> 16` on a possibly negative value is `(x And &HFFFF0000) \ &H10000`
@@ -96,6 +102,12 @@ depend on how floating point intermediates are rounded.
 * `-watch slot` logs spawn / state changes / removal of one thinker slot.
 * `-timedemo demo1 -hidden -nosound -nomouse` plays a demo as fast as possible
   and logs the frame rate; `-shot <tic> <file.bmp>` saves screenshots.
+* Smooth frames (r_interp.bas) are off in `-hidden` and timedemo runs, so a
+  `-shot` shows the exact tic; add `-smooth` to test them hidden (frames are
+  then paced by the clock at 60 Hz); `-framelog <file>` records when every
+  tic is built and every frame drawn. Anything the renderer reads must stay
+  game state only: in-between values go through R_Interp* helpers or are
+  restored by R_InterpEnd.
 * `-key <tic>[+<n>] <key>` scripts key presses (menus, movement) for hidden
   runs; pair it with `-config <scratch copy>` to keep `default.cfg` unchanged.
   `-hidden` ignores the real keyboard, so scripted runs are reproducible.

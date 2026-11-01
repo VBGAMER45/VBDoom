@@ -46,6 +46,7 @@ Module=p_user; src\p_user.bas
 Module=r_bsp; src\r_bsp.bas
 Module=r_data; src\r_data.bas
 Module=r_draw; src\r_draw.bas
+Module=r_interp; src\r_interp.bas
 Module=r_main; src\r_main.bas
 Module=r_plane; src\r_plane.bas
 Module=r_segs; src\r_segs.bas

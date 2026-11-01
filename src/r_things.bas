@@ -337,11 +337,13 @@ Private Sub R_ProjectSprite(ByVal thing As Long)
     Dim tr_x As Long, tr_y As Long, gxt As Long, gyt As Long, tx As Long, tz As Long
     Dim xscale As Long, x1 As Long, x2 As Long, sprite As Long, fr As Long
     Dim lump As Long, rot As Long, flip As Boolean, index As Long
-    Dim vis As Long, ang As Long, iscale As Long
+    Dim vis As Long, ang As Long, iscale As Long, gx As Long, gy As Long, gz As Long
+
+    R_InterpThing thing, gx, gy, gz              ' (DoomVB) smooth frames
 
     ' transform the origin point
-    tr_x = mobjs(thing).x - viewx
-    tr_y = mobjs(thing).y - viewy
+    tr_x = gx - viewx
+    tr_y = gy - viewy
 
     gxt = FixedMul(tr_x, viewcos)
     gyt = -FixedMul(tr_y, viewsin)
@@ -373,7 +375,7 @@ Private Sub R_ProjectSprite(ByVal thing As Long)
 
     If sf_rotate(fr) = 1 Then
         ' choose a different rotation based on player view
-        ang = R_PointToAngle(mobjs(thing).x, mobjs(thing).y)
+        ang = R_PointToAngle(gx, gy)
         rot = SHR(ang - mobjs(thing).angle + &H90000000, 29)
         lump = sf_lump(fr * 8 + rot)
         flip = (sf_flip(fr * 8 + rot) <> 0)
@@ -400,10 +402,10 @@ Private Sub R_ProjectSprite(ByVal thing As Long)
     vis = R_NewVisSprite()
     vissprites(vis).mobjflags = mobjs(thing).flags
     vissprites(vis).vscale = xscale * pow2(detailshift)
-    vissprites(vis).gx = mobjs(thing).x
-    vissprites(vis).gy = mobjs(thing).y
-    vissprites(vis).gz = mobjs(thing).z
-    vissprites(vis).gzt = mobjs(thing).z + spritetopoffset(lump)
+    vissprites(vis).gx = gx
+    vissprites(vis).gy = gy
+    vissprites(vis).gz = gz
+    vissprites(vis).gzt = gz + spritetopoffset(lump)
     vissprites(vis).texturemid = vissprites(vis).gzt - viewz
     If x1 < 0 Then vissprites(vis).x1 = 0 Else vissprites(vis).x1 = x1
     If x2 >= viewwidth Then vissprites(vis).x2 = viewwidth - 1 Else vissprites(vis).x2 = x2
@@ -474,9 +476,10 @@ End Sub
 ' R_DrawPSprite
 Private Sub R_DrawPSprite(ByVal player As Long, ByVal pspnum As Long)
     Dim tx As Long, x1 As Long, x2 As Long, st As Long, sprite As Long, fr As Long
-    Dim lump As Long, flip As Boolean, vis As vissprite_t
+    Dim lump As Long, flip As Boolean, vis As vissprite_t, sx As Long, sy As Long
 
     st = players(player).psprites(pspnum).state
+    R_InterpPSprite player, pspnum, sx, sy      ' (DoomVB) smooth frames
 
     ' decide which patch to use
     sprite = states(st).sprite
@@ -493,7 +496,7 @@ Private Sub R_DrawPSprite(ByVal player As Long, ByVal pspnum As Long)
     flip = (sf_flip(fr * 8) <> 0)
 
     ' calculate edges of the shape
-    tx = players(player).psprites(pspnum).sx - 160 * FRACUNIT
+    tx = sx - 160 * FRACUNIT
 
     tx = tx - spriteoffset(lump)
     x1 = ((centerxfrac + FixedMul(tx, pspritescale)) And &HFFFF0000) \ &H10000
@@ -509,7 +512,7 @@ Private Sub R_DrawPSprite(ByVal player As Long, ByVal pspnum As Long)
 
     ' store information in a vissprite
     vis.mobjflags = 0
-    vis.texturemid = (BASEYCENTER * FRACUNIT) + FRACUNIT \ 2 - (players(player).psprites(pspnum).sy - spritetopoffset(lump))
+    vis.texturemid = (BASEYCENTER * FRACUNIT) + FRACUNIT \ 2 - (sy - spritetopoffset(lump))
     If x1 < 0 Then vis.x1 = 0 Else vis.x1 = x1
     If x2 >= viewwidth Then vis.x2 = viewwidth - 1 Else vis.x2 = x2
     vis.vscale = pspritescale * pow2(detailshift)

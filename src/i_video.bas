@@ -5,7 +5,9 @@ Attribute VB_Name = "i_video"
 ' DIB section and stretched onto frmDoom.  Keyboard input arrives through a
 ' subclassed window procedure (so Alt / F10 do not activate the system menu)
 ' and is posted as Doom events.  The mouse is read relative to the window
-' centre while the game is being played.
+' centre while the game is being played.  With smooth frames D_DoomLoop
+' draws one frame per screen refresh, timed by the desktop compositor's
+' refresh grid (I_WaitForRefresh), so frames reach the monitor evenly.
 '
 ' DoomVB: a Visual Basic 6 port of the DOOM source release.
 ' Copyright (C) 1993-1996 id Software, Inc.  Licensed under the GNU GPL v2.
@@ -67,6 +69,9 @@ Private Declare Function ShowCursor Lib "user32" (ByVal bShow As Long) As Long
 Private Declare Function ClipCursor Lib "user32" (lpRect As Any) As Long
 Private Declare Function GetAsyncKeyState Lib "user32" (ByVal vKey As Long) As Integer
 Private Declare Function ValidateRect Lib "user32" (ByVal hWnd As Long, ByVal lpRect As Long) As Long
+Private Declare Function GetDeviceCaps Lib "gdi32" (ByVal hdc As Long, ByVal nIndex As Long) As Long
+Private Declare Function GdiFlush Lib "gdi32" () As Long
+Private Declare Function DwmGetCompositionTimingInfo Lib "dwmapi" (ByVal hWnd As Long, pTimingInfo As Any) As Long
 
 Private Const GWL_WNDPROC As Long = -4
 Private Const GWL_STYLE As Long = -16
@@ -86,6 +91,8 @@ Private Const SWP_NOMOVE As Long = 2
 Private Const SWP_NOZORDER As Long = 4
 Private Const COLORONCOLOR As Long = 3
 Private Const SRCCOPY As Long = &HCC0020
+Private Const VREFRESH As Long = 116
+Private Const DWM_TIMING_SIZE As Long = 292      ' sizeof(DWM_TIMING_INFO), packed
 
 Private hwndMain As Long
 Private oldWndProc As Long
@@ -103,11 +110,23 @@ Private mouseCursorHidden As Boolean
 Private lastButtons As Long
 Private mouseEnabled As Boolean
 
+Private refreshms As Double                      ' one screen refresh in ms (GetDeviceCaps)
+Private framems As Double                        ' the moment the frame being drawn shows
+Private framegrid As Double                      ' the refresh it follows (framems - offset)
+Private nodwm As Boolean                         ' no dwmapi.dll (before Windows Vista)
+Private dwmtiming(0 To DWM_TIMING_SIZE - 1) As Byte
+Private framesshown As Long                      ' frames drawn (logged at shutdown)
+Private firstframems As Double
+Private clockpaced As Long                       ' refreshes timed by the clock alone
+Private lateframes As Long                       ' frames that missed their refresh
+
 Public currentPalette(0 To 767) As Byte          ' last palette passed to I_SetPalette (for screenshots)
+Public framelog As Integer                       ' -framelog <file>: frame and tic timing
+Private blitms As Double                         ' (for the frame log)
 Public windowHidden As Boolean
 
 Public Sub I_InitGraphics()
-    Dim w As Long, h As Long, p As Long
+    Dim w As Long, h As Long, p As Long, rate As Long
     Dim r As RECT, hdc As Long
 
     If graphicsUp Then Exit Sub
@@ -146,7 +165,11 @@ Public Sub I_InitGraphics()
     hdc = GetDC(hwndMain)
     memDC = CreateCompatibleDC(hdc)
     hDib = CreateDIBSection(memDC, bmi, 0, dibBits, 0, 0)
+    rate = GetDeviceCaps(hdc, VREFRESH)          ' 0 or 1 = the hardware default
     ReleaseDC hwndMain, hdc
+    If rate < 30 Or rate > 500 Then rate = 60
+    refreshms = 1000# / rate
+    I_Printf "I_InitGraphics: " & w & "x" & h & " window, display " & rate & " Hz"
     If hDib = 0 Or dibBits = 0 Then I_Error "I_InitGraphics: CreateDIBSection failed"
     hOldBmp = SelectObject(memDC, hDib)
 
@@ -173,9 +196,16 @@ Public Sub I_SetWindowTitle(ByVal s As String)
 End Sub
 
 Public Sub I_ShutdownGraphics()
+    Dim msg As String
     On Error Resume Next
     If Not graphicsUp Then Exit Sub
     graphicsUp = False
+    If framesshown > 1 Then
+        msg = "I_ShutdownGraphics: " & framesshown & " frames, " & _
+              Format$((framesshown - 1) * 1000# / (I_GetTimeExact() - firstframems), "0.0") & " fps"
+        If smoothactive Then msg = msg & " (" & lateframes & " late, " & clockpaced & " timed by the clock)"
+        I_Printf msg
+    End If
     ReleaseMouse
     If oldWndProc <> 0 Then SetWindowLong hwndMain, GWL_WNDPROC, oldWndProc
     oldWndProc = 0
@@ -212,9 +242,75 @@ Public Sub I_FinishUpdate()
     Dim hdc As Long, r As RECT
     If Not graphicsUp Then Exit Sub
     CopyMemory ByVal dibBits, screens(0), SCREENSIZE
-    If windowHidden Then Exit Sub
-    BlitToWindow
+    If framesshown = 0 Then firstframems = I_GetTimeExact()
+    framesshown = framesshown + 1
+    If Not windowHidden Then BlitToWindow
+    If framelog <> 0 Then blitms = I_GetTimeExact()
 End Sub
+
+' Smooth frames (D_DoomLoop, after every frame): waits until shortly after
+' the next screen refresh.  The frame drawn then reaches the compositor well
+' before its following pass, and it shows the game as of that moment
+' (I_FrameTime), so every frame moves the picture by the same amount.  The
+' wait keeps building tics on time (the mouse is read when a tic is built)
+' and feeds the sound, as TryRunTics' own wait loop does.
+Public Sub I_WaitForRefresh()
+    Dim nowms As Double, grid As Double, period As Double, offset As Double, target As Double
+
+    nowms = I_GetTimeExact()
+    If Not RefreshGrid(grid, period) Then
+        clockpaced = clockpaced + 1              ' no compositor: keep the last frame's rhythm
+        grid = framegrid
+        period = refreshms
+    End If
+    offset = period / 4
+    If offset > 3 Then offset = 3
+    target = grid + offset + period * (Int((nowms - grid - offset) / period) + 1)
+    framegrid = target - offset
+    If framems > 0 And target - framems > period * 1.5 Then lateframes = lateframes + 1
+    If framelog <> 0 Then
+        Print #framelog, "F " & gametic & " " & Format$(framems, "0.000") & " " & Format$(blitms, "0.000") & _
+                         " " & Format$(target, "0.000") & " " & Format$(period, "0.000")
+    End If
+
+    Do
+        NetUpdate                                ' build tics on time
+        I_UpdateSound
+        nowms = I_GetTimeExact()
+        If nowms >= target Then Exit Do
+        If target - nowms > 1.5 Then Sleep 1 Else Sleep 0
+    Loop
+    framems = target
+End Sub
+
+' Smooth frames: the moment the frame being drawn shows the game at
+' (I_GetTimeExact milliseconds).
+Public Function I_FrameTime() As Double
+    If framems = 0 Then framems = I_GetTimeExact()
+    I_FrameTime = framems
+End Function
+
+' The compositor's refresh grid: the time of one vertical blank and the
+' refresh period, in I_GetTimeExact milliseconds.  False without one to ask
+' (-hidden, no dwmapi.dll, composition off, no performance counter).
+Private Function RefreshGrid(grid As Double, period As Double) As Boolean
+    Dim sz As Long, vblank As Currency, qpcperiod As Currency
+    If windowHidden Or nodwm Then Exit Function
+    On Error GoTo missing
+    sz = DWM_TIMING_SIZE
+    CopyMemory dwmtiming(0), sz, 4               ' cbSize
+    If DwmGetCompositionTimingInfo(0, dwmtiming(0)) <> 0 Then Exit Function
+    CopyMemory qpcperiod, dwmtiming(12), 8       ' qpcRefreshPeriod
+    CopyMemory vblank, dwmtiming(28), 8          ' qpcVBlank
+    grid = I_CountToMS(vblank)
+    If grid < 0 Then Exit Function
+    period = I_CountToMS(vblank + qpcperiod) - grid
+    If period < 2 Or period > 50 Then Exit Function
+    RefreshGrid = True
+    Exit Function
+missing:
+    nodwm = True
+End Function
 
 Private Sub BlitToWindow()
     Dim hdc As Long, r As RECT
@@ -222,6 +318,7 @@ Private Sub BlitToWindow()
     hdc = GetDC(hwndMain)
     SetStretchBltMode hdc, COLORONCOLOR
     StretchBlt hdc, 0, 0, r.Right, r.Bottom, memDC, 0, 0, SCREENWIDTH, SCREENHEIGHT, SRCCOPY
+    GdiFlush                                     ' hand it over now, not at the next GDI call
     ReleaseDC hwndMain, hdc
 End Sub
 

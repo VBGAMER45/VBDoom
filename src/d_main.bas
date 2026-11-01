@@ -287,6 +287,7 @@ End Sub
 
 ' D_DoomLoop
 Public Sub D_DoomLoop()
+    Dim i As Long
     On Error GoTo crashed
 
     If demorecording Then G_BeginRecording
@@ -298,6 +299,18 @@ Public Sub D_DoomLoop()
     End If
 
     I_InitGraphics
+
+    ' (DoomVB) smooth frames: draw once per screen refresh, between the tics.
+    ' Scripted -hidden runs keep one frame per tic (exact -shot pictures).
+    smoothactive = (smoothframes <> 0) And Not windowHidden
+    If M_CheckParm("-smooth") > 0 Then smoothactive = True
+    If M_CheckParm("-nosmooth") > 0 Or singletics Then smoothactive = False
+    If smoothactive Then I_Printf "D_DoomLoop: smooth frames on" Else I_Printf "D_DoomLoop: smooth frames off"
+    i = M_CheckParm("-framelog")
+    If i > 0 And i < myargc - 1 Then
+        framelog = FreeFile
+        Open myargv(i + 1) For Output As #framelog
+    End If
 
     Do
         ' frame syncronous IO operations
@@ -315,12 +328,14 @@ Public Sub D_DoomLoop()
             maketic = maketic + 1
         Else
             TryRunTics                           ' will run at least one tic
+                                                 ' (smooth frames: none if not yet due)
         End If
 
         dbgPhase = "S_UpdateSounds"
         S_UpdateSounds players(consoleplayer).mo ' move positional sounds
 
         ' Update display, next frame, with current state.
+        R_InterpStartFrame
         D_Display
 
         dbgPhase = "I_UpdateSound"
@@ -333,6 +348,7 @@ Public Sub D_DoomLoop()
             G_ExitLevel
         End If
         If numKeys > 0 Then CheckKeyHook
+        If smoothactive Then I_WaitForRefresh     ' (DoomVB) smooth frames
     Loop
     Exit Sub
 

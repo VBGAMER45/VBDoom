@@ -308,7 +308,7 @@ Private Sub R_InitLightTables()
     For i = 0 To LIGHTLEVELS - 1
         startmap = ((LIGHTLEVELS - 1 - i) * 2) * NUMCOLORMAPS \ LIGHTLEVELS
         For j = 0 To MAXLIGHTZ - 1
-            scl = FixedDiv((SCREENWIDTH \ 2 * FRACUNIT), (j + 1) * pow2(LIGHTZSHIFT))
+            scl = FixedDiv((SCREENWIDTH \ 2) * FRACUNIT, (j + 1) * pow2(LIGHTZSHIFT))
             scl = SAR(scl, LIGHTSCALESHIFT)
             level = startmap - scl \ DISTMAP
             If level < 0 Then level = 0
@@ -367,7 +367,7 @@ Public Sub R_ExecuteSetViewSize()
     For i = 0 To viewheight - 1
         dy = ((i - viewheight \ 2) * FRACUNIT) + FRACUNIT \ 2
         dy = Abs(dy)
-        yslope(i) = FixedDiv((viewwidth * pow2(detailshift)) \ 2 * FRACUNIT, dy)
+        yslope(i) = FixedDiv(((viewwidth * pow2(detailshift)) \ 2) * FRACUNIT, dy)
     Next
 
     For i = 0 To viewwidth - 1
@@ -430,6 +430,7 @@ Private Sub R_SetupFrame(ByVal player As Long)
     extralight = players(player).extralight
 
     viewz = players(player).viewz
+    R_InterpView player                          ' (DoomVB) smooth frames
 
     viewsin = finesine(FINEANGLE(viewangle))
     viewcos = finecosine(FINEANGLE(viewangle))
@@ -448,6 +449,7 @@ Private Sub R_SetupFrame(ByVal player As Long)
 End Sub
 
 Public Sub R_RenderPlayerView(ByVal playernum As Long)
+    R_InterpBegin                                ' (DoomVB) smooth frames
     R_SetupFrame playernum
 
     ' Clear buffers.
@@ -475,6 +477,7 @@ Public Sub R_RenderPlayerView(ByVal playernum As Long)
     dbgPhase = "R_DrawMasked"
     R_DrawMasked
     dbgPhase = "R_RenderPlayerView done"
+    R_InterpEnd
 
     ' Check for new console commands.
     NetUpdate

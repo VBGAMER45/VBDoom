@@ -384,6 +384,8 @@ Public Sub P_SetupLevel(ByVal episode As Long, ByVal map As Long, ByVal playerma
 
     ' preload graphics
     R_PrecacheLevel
+
+    R_InterpReset                                ' (DoomVB) smooth frames
 End Sub
 
 ' P_Init

@@ -28,6 +28,7 @@ renderer is pure software, and the GDI blit is not a bottleneck.
 python tools\build.py              build DoomVB.exe (writes DoomVB.vbp from src/ + stubs)
 python tools\build.py --release    same, without array bounds checks
 python tools\check_names.py        find case-insensitive name clashes in one pass
+python tools\check_precedence.py   find "a \ b * c" / "a Mod b * c" (VB: a \ (b * c))
 python tools\debugbuild.py         DoomVB_debug.exe with per-procedure call traces
 python tools\gen_tables.py         regenerate info/sounds/strings/items tables + res/tables.bin
 python tools\gen_stubs.py          regenerate stubs/stubs_*.bas (cluster interfaces)
@@ -151,6 +152,59 @@ with the real devices: waveOut and the MIDI mapper open, no underruns
 the intermission song change work. demo1 still matches tic for tic (sound
 calls M_Random, never P_Random).
 
+Smooth frames (r_interp.bas, DoomVB only; asked for because movement looked
+juddery: 35 frames a second do not divide a 60 Hz refresh, and blits went out
+at random points of the refresh). The game still runs 35 tics a second;
+D_DoomLoop draws one frame per screen refresh: after each frame
+I_WaitForRefresh waits until 3 ms (a quarter period at most) past the next
+vertical blank of the compositor's refresh grid (DwmGetCompositionTimingInfo:
+qpcVBlank, which lies a frame or two ahead, and qpcRefreshPeriod; clock
+pacing at the GetDeviceCaps rate for `-hidden` or without a compositor).
+While it waits it calls NetUpdate and I_UpdateSound every millisecond, so
+tics are built on time; the mouse is read when a tic is built. A first
+version waited in DwmFlush instead: tics whose time fell into that wait were
+built up to 16 ms late, so mouse turning per tic varied by half. Each frame shows the game as of its grid moment
+(I_FrameTime), not the moment it happens to be drawn, so every frame moves
+the same amount. The clock is now the performance counter
+(I_GetTimeExact; I_GetTime and I_GetTimeMS derive from it; timeGetTime only
+without one). `-framelog <file>` writes "T maketic tic ms" per built tic and
+"F gametic frametime blittime nextframe period" per frame (ms); a visible
+live run showed every frame one refresh apart and tics built 0.9 ms after
+their time on average (3.2 ms at worst). P_Ticker calls R_InterpSave at the start of each tic (things by
+slot, players' viewz and psprites, sector floor/ceiling heights, special-48
+scrolling sides); frames in between draw the view, sprites (R_ProjectSprite),
+the weapon (R_DrawPSprite, only while its frame is unchanged) at the
+fraction of the tic that has passed at I_FrameTime; R_InterpBegin/End put
+in-between sector heights and side offsets into the arrays around R_RenderPlayerView and
+restore them. New things (P_NewThinker) and teleports (P_TeleportMove) are
+not interpolated for their first tic; P_SetupLevel resets everything. In
+smooth mode TryRunTics returns at once when no tic is due (the frameskip /
+gametime adjustment only runs when tics run, so non-key net players don't
+drift; a 20 tic stall still runs M_Ticker). Default on (`smooth_frames 1` in
+default.cfg); `-nosmooth` off, `-smooth` forces it on; `-hidden` and
+singletics (timedemo) runs keep one frame per tic so `-shot` stays exact.
+Verified: demo1 played in real time with `-hidden -smooth` gives a synclog
+byte-identical to `-timedemo` (all 7117 tics); `-nosmooth` real time matches
+too; a two-player net game with both copies smooth (moving, firing) stayed in
+sync for 1000 tics; screenshots of smooth frames show no artifacts. The log
+reports frames, fps, late frames and clock-timed refreshes at exit;
+timedemo about 640 fps.
+
+The "flicking" the user kept seeing was a renderer bug from the start, not
+timing: `yslope(i) = FixedDiv((viewwidth * pow2(detailshift)) \ 2 *
+FRACUNIT, dy)` is `viewwidth \ 131072` = 0 in VB (`*` binds tighter than
+`\`), so every floor and ceiling span had distance 0: no perspective, both
+texture steps 0, so each span drew the one texel at the viewer's position,
+and no distance shading. Walking across FLOOR4_8's black grout lines flipped
+whole floors between gray and black each tic. R_InitLightTables had the same
+`SCREENWIDTH \ 2 * FRACUNIT` (zlight without distance fade). Both fixed;
+`tools\check_precedence.py` scans for the pattern (no other hits). Found by
+capturing every frame of demo1 tics 1100-1400 (`-shot` per tic), flagging
+floor pixels that change for one frame only (dozens before, none after), and
+logging the R_MapPlane parameters. Game state unchanged (demo1 synclog
+identical), timedemo 750 fps. The README screenshots ingame.png and coop.png
+were retaken (they showed the flat floors).
+
 ## Scaffolding
 
 * `stubs/` and `tools/gen_stubs.py` are no longer used by the build (every
@@ -161,8 +215,11 @@ calls M_Random, never P_Random).
 
 1. `--release` performance check, play-through tests (E1M1 to the E1M8
    boss), and doom2-format maps (freedoom2.wad). README.md exists (controls,
-   multiplayer, options, building, license); the user adds screenshots as
-   docs/screenshots/{ingame,automap,menu,deathmatch}.png. Writing it found
+   multiplayer, options, building, license) with four screenshots in
+   docs/screenshots/ (ingame: demo1 tic 1300; automap: E1M1 iddt, zoomed out,
+   follow off; menu: title + Esc; coop: player 2 seen by player 1 at tic 60
+   of a net game where player 2 walks forward from tic 20), taken
+   with -shot and scaled to 960x720 nearest neighbour. Writing it found
    `-avg` broken (`20 * 60 * 35` overflowed 16 bits; now `20&`).
    For GitHub: freedoom1.wad (Freedoom 0.13.0) is committed, with its
    COPYING, CREDITS and CREDITS-MUSIC (from the v0.13.0 tag) in freedoom/;
@@ -235,7 +292,8 @@ calls M_Random, never P_Random).
   exact P_Random call order).
 * 16-bit literal overflow (`10240 * 4`), `&H8000` is negative, `\` vs `/`,
   `>>` on negatives, unsigned angle compares (ULT/UGT), comparisons binding
-  tighter than And.
+  tighter than And, and `*` / `/` binding tighter than `\` / `Mod`
+  (`x \ 2 * FRACUNIT` flattened every floor; check_precedence.py).
 * Reserved names bit us: `scale` (even as a UDT member), `Empty`, `line`, `Me`.
   Case-insensitive clashes: VIEWHEIGHT/viewheight, NUMSPRITES/numsprites, module
   m_random vs M_Random, SP_SECRET/sp_secret inside one module (check_names.py
@@ -286,3 +344,7 @@ calls M_Random, never P_Random).
   waiting for the start the window is up and its title says so (no console
   on Windows); the wait loops sleep and feed the sound; gametime starts at
   the current time (the C began at 0, so the first tics piled up).
+  Video: smooth frames (see above): frames drawn between tics, timed by the
+  compositor's refresh grid, with TryRunTics returning early instead of
+  waiting (the refresh wait builds the tics); the game state is unchanged.
+  Timing: the performance counter instead of timeGetTime.
